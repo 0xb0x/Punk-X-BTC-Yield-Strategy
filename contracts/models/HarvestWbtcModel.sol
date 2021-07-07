@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 import "../interfaces/ModelInterface.sol";
 import "../ModelStorage.sol";
 import "../3rdDeFiInterfaces/IUniswapV2Router.sol";
-import {FVault } from "../3rdDeFiInterfaces/fVault.sol";
+import {FVault} from "../3rdDeFiInterfaces/fVault.sol";
 import "../3rdDeFiInterfaces/RewardPool.sol";
 
 contract HarvestModel is ModelInterface, ModelStorage{
@@ -43,32 +43,33 @@ contract HarvestModel is ModelInterface, ModelStorage{
 
     }
 
+    // returns balance of underlying token
     function underlyingBalanceInModel() public override view returns ( uint256 ){
         return IERC20( token( 0 ) ).balanceOf( address( this ) );
     }
 
+    // returns balance of underlying token + investments
     function underlyingBalanceWithInvestment() public override view returns ( uint256 ){
-        return underlyingBalanceInModel().add( FVault( _fToken ).getPricePerFullShare().mul( _fTokenBalanceOf() ).div( 1e18 ) );
+        uint256 notUndBal = _fTokenBalanceOf().add(RewardPool(_rewardPool).balanceOf(address(this)));
+        return underlyingBalanceInModel().add(notUndBal.mul(FVault( _fToken ).getPricePerFullShare()).div(1e18));
     }
 
+    // deposit underlying token into vault to recieve fvault and stake in Reward Pool
     function invest() public override {
-        // Hard Work Now! For Punkers by 0xViktor
         IERC20( token( 0 ) ).safeApprove( vault , underlyingBalanceInModel() );
-
-        emit Invest( underlyingBalanceInModel(), block.timestamp );
         FVault(vault).depositFor(underlyingBalanceInModel(), address(this) );
         RewardPool(_rewardPool).stake(_fTokenBalanceOf());
+        emit Invest( underlyingBalanceInModel(), block.timestamp );
     }
     
+    // claim farm token, swap to farm underlying and invest
     function reInvest() public{
-        // Hard Work Now! For Punkers by 0xViktor
         _claimFarm();
         _swapFarmToUnderlying();
         invest();
     }
 
     function withdrawAllToForge() public OnlyForge override{
-        // Hard Work Now! For Punkers by 0xViktor
         _claimFarm();
         _swapFarmToUnderlying();
         RewardPool(_rewardPool).exit();
@@ -85,12 +86,17 @@ contract HarvestModel is ModelInterface, ModelStorage{
     function withdrawTo( uint256 amount, address to ) public OnlyForge override{
         // Hard Work Now! For Punkers by 0xViktor
         uint oldBalance = IERC20( token(0) ).balanceOf( address( this ) );
-        RewardPool(_rewardPool).withdraw(amount);
-        FVault(vault).withdraw( amount );
-        uint newBalance = IERC20( token(0) ).balanceOf( address( this ) );
-        require(newBalance.sub( oldBalance ) > 0, "MODEL : REDEEM BALANCE IS ZERO");
-        IERC20( token( 0 ) ).safeTransfer( to, newBalance.sub( oldBalance ) );
-        
+        if(amount > oldBalance){
+            uint amt = amount.sub(oldBalance);
+            uint balRP = RewardPool(_rewardPool).balanceOf(address(this));
+            uint tokenPrice = FVault( _fToken ).getPricePerFullShare();
+            uint totalBal = balRP.mul(tokenPrice).div(1e18);
+            require (amt < totalBal) ;
+            uint amt2wd = amount.div(tokenPrice);
+            RewardPool(_rewardPool).withdraw(amt2wd);
+            FVault(vault).withdraw( amt2wd );
+        }
+        IERC20( token( 0 ) ).safeTransfer(to, amount);
         emit Withdraw( amount, forge(), block.timestamp);
     }
 
@@ -98,12 +104,13 @@ contract HarvestModel is ModelInterface, ModelStorage{
         return IERC20(_fToken).balanceOf( address( this ) );
     }
 
+    // 
     function _claimFarm() internal {
         RewardPool(_rewardPool).getReward();
     }
 
     function _swapFarmToUnderlying() internal {
-        // Hard Work Now! For Punkers by 0xViktor
+    
         uint balance = IERC20(_farm).balanceOf(address(this));
         if (balance > 0) {
 

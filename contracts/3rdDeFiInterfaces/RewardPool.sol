@@ -12,5 +12,7 @@ interface RewardPool {
 
     function exit() external ;
 
+    function balanceOf(address account) external view returns (uint256) ;
+
     function getReward() external ;
 }
